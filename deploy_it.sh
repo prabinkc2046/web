@@ -93,21 +93,6 @@ enable_it(){
     esac
 }
 
-# Update
-apt update -y
-check_err "apt update -y" "$?"
-
-# Checks if the given software is already installed
-# Installs it if it is not installed
-# Skips if it is already installed
-install_it "$package_name"
-
-# Start the service
-start_it "$service"
-
-# Enable
-enable_it "$service"
-
 # Find the path to the nginx.conf file
 # Find the user of nginx
 # Find the path to the default site directory
@@ -130,9 +115,7 @@ create_site(){
         chmod 770 -R "$path_to_new_site"
     fi
 }
-create_site "$site_name"
 
-# Configure the site
 configure_site(){
     if [ -f /etc/nginx/sites-available/default ]; then
         mv /etc/nginx/sites-available/default /etc/nginx/sites-available/default.bak
@@ -156,6 +139,30 @@ configure_site(){
 EOF
     ln -s /etc/nginx/sites-available/$site_name /etc/nginx/sites-enabled/
 }
+
+# Update
+apt update -y
+check_err "apt update -y" "$?"
+
+# Checks if the given software is already installed
+# Installs it if it is not installed
+# Skips if it is already installed
+install_it "$package_name"
+
+# Start the service
+start_it "$service"
+
+# Enable
+enable_it "$service"
+
+
+#create site
+create_site "$site_name"
+
+# Configure the site
+configure_site "$site_name"
+
+# copying
+cp ./code/* "$path_to_new_site"
 systemctl restart $service
 check_err "systemctl restart $service" "$?"
-configure_site "$site_name"
