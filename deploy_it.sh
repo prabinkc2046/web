@@ -8,8 +8,9 @@
 # If an IP is used, it may result in an error on the second run due to a duplicate error. Use a domain name if available.
 
 # Check if the required number of arguments is provided or not
-if [ "$#" -ne 3 ]; then
-    echo "Usage: $0 <package name> <service name> <site name>"
+if [ "$#" -ne 4 ]; then
+    echo "Usage: $0 <package name> <service name> <site name> <path to project dir>"
+    echo "sudo ./deploy_it.sh nginx nginx mynewwebsite /web"
     exit 3
 fi
 
@@ -17,8 +18,14 @@ fi
 package_name=$1
 service=$2
 site_name=$3
+project_dir=$4
 server_name_or_ip=$(curl ipinfo.io/ip)
 
+# Function to check the status of a command and exit if it fails
+# Usage: check_err <command> <status>
+#   <command>: The command to be executed
+#   <status>: The exit status of the command
+# If the status is 0, print success message; otherwise, print an error message and exit with status 1.
 check_err(){
     command=$1
     status=$2
@@ -34,9 +41,22 @@ check_err(){
     fi
 }
 
+
+# Function to check if a package is installed and install it if not
+# Usage: install_it
+# - The function checks if the specified package is present using dpkg.
+# - If the package is present, it prints a message and skips installation.
+# - If the package is not present, it installs the package using apt.
+# - The installation is verified using the check_err function.
 install_it(){
-    installed=$(dpkg -l | awk '{print $2}' | awk '{for(i=1; i<=NF; i++) {if($i == "$package_name") {print "true"}}}')
-    if $installed; then
+    # Check if the package is present in the list of installed packages
+    package_present=$(dpkg -l | awk '{print $2}' | awk -v package_name="$package_name" '{for(i=1;i<=NF;i++) if($i == package_name ) print "true"}')
+
+    # Print the current value of package_present
+    echo "the value of install is: $package_present"
+
+    # If package is present, skip installation; otherwise, install the package
+    if "$package_present"; then
         echo "$package_name is already installed. Skipping installation..."
     else
         echo "
@@ -47,10 +67,19 @@ install_it(){
     fi
 }
 
-# Start the service if it is not started
-# Grab the line that has the word 'active' and grab the 3rd field of this line
+
+
+# Function to check and start a service if it is not already running
+# Usage: start_it
+# - The function retrieves the status of the specified service using systemctl.
+# - If the service is "active" and "running," it prints a message indicating that the service is already running.
+# - If the service is "dead," it prints a message, starts the service using systemctl, and checks for errors using check_err.
+# - If the service status is neither "active" nor "dead," it prints a message indicating that the service does not exist.
 start_it(){
+    # Get the status of the service
     service_status=$(systemctl status $service | grep -i "active" | awk '{print $3}')
+
+    # Case statement to handle different service statuses
     case $service_status in
         "(running)")
         echo "
@@ -72,15 +101,25 @@ start_it(){
     esac
 }
 
+
+# Function to check and enable a service if it is currently disabled
+# Usage: enable_it
+# - The function retrieves the boot status of the specified service using systemctl.
+# - If the service is already "enabled," it prints a message indicating that the service is already enabled.
+# - If the service is "disabled," it prints a message, enables the service using systemctl, and checks for errors using check_err.
+# - If the boot status is neither "enabled" nor "disabled," it prints a message indicating that there is nothing to do.
 enable_it(){
+    # Get the boot status of the service
     boot_status=$(systemctl status $service | grep -i "loaded" | awk -F";" '{print $2}')
+
+    # Case statement to handle different service boot statuses
     case "$boot_status" in
         "enabled")
         echo "
         $service is enabled.
         "
         ;;
-    "disabled")
+        "disabled")
         echo "
         $service is disabled. Enabling it now...
         "
@@ -93,33 +132,73 @@ enable_it(){
     esac
 }
 
-# Find the path to the nginx.conf file
-# Find the user of nginx
-# Find the path to the default site directory
-# Create a site directory in the default site directory
-# Provide ownership and permission to the new site directory
+
+# Function to create a new site directory and set ownership and permissions
+# Usage: create_site
+# - The function locates the nginx configuration file and extracts the user specified in the configuration.
+# - It then checks if the site directory already exists. If it does, it exits with an error message.
+# - If the site directory does not exist, it creates the directory, assigns ownership to the nginx user, and sets appropriate permissions.
 create_site(){
+    # Find the path to the nginx configuration file
     path_to_config_file=$(find / -type f -name "nginx.conf")
+
+    # Extract the nginx user from the configuration file
     nginx_user=$(cat "$path_to_config_file" | awk '/user/{print $2}')
     nginx_user=$(echo "$nginx_user" | sed 's/;$//')
+
+    # Find the path to the default site directory
     path_to_default_site_dir=$(find / -type d -name "www")
-    if [ -d $path_to_default_site_dir/$site_name ]; then
+
+    # Check if the site directory already exists
+    if [ -d "$path_to_default_site_dir/$site_name" ]; then
         echo "$site_name already exists. Try another name. Exiting..."
         exit 2
     else
+        # Create the site directory
         mkdir "$path_to_default_site_dir/$site_name"
         path_to_new_site=$(find "$path_to_default_site_dir" -type d -name "$site_name")
         echo "$path_to_new_site is created."
+
+        # Assign ownership and set permissions for the nginx user
         echo "Assigning ownership and permission to $nginx_user"
         chown "$nginx_user":"$nginx_user" -R "$path_to_new_site"
         chmod 770 -R "$path_to_new_site"
     fi
 }
 
-configure_site(){
+# Function to remove the default Nginx site configuration
+# Usage: remove_default
+# - Checks if the default configuration file in /etc/nginx/sites-available exists.
+# - If it exists, it renames the file to default.bak.
+# - Checks if the default configuration file in /etc/nginx/sites-enabled exists.
+# - If it exists, it removes the file to disable the default site.
+remove_default(){
+    # Check if the default configuration file in sites-available exists
     if [ -f /etc/nginx/sites-available/default ]; then
+        # Rename the default configuration file to default.bak
         mv /etc/nginx/sites-available/default /etc/nginx/sites-available/default.bak
     fi
+
+    # Check if the default configuration file in sites-enabled exists
+    if [ -f /etc/nginx/sites-enabled/default ]; then
+        # Remove the default configuration file to disable the default site
+        rm /etc/nginx/sites-enabled/default
+    fi
+}
+
+
+
+# Function to configure a new Nginx site
+# Usage: configure_site
+# - Calls remove_default to ensure the default Nginx site is removed.
+# - Creates a new configuration file for the specified site in /etc/nginx/sites-available.
+# - The configuration includes basic server settings, such as root directory, index files, server name or IP, and location settings.
+# - Creates a symbolic link in /etc/nginx/sites-enabled to enable the new site.
+configure_site(){
+    # Call remove_default to remove the default Nginx site configuration
+    remove_default
+
+    # Create a new configuration file for the site in sites-available
     touch /etc/nginx/sites-available/$site_name
     cat > /etc/nginx/sites-available/$site_name << EOF
     server {
@@ -137,32 +216,85 @@ configure_site(){
         }
     }
 EOF
+
+    # Create a symbolic link to enable the new site
     ln -s /etc/nginx/sites-available/$site_name /etc/nginx/sites-enabled/
 }
 
-# Update
+
+
+# Update package information using 'apt update' with the '-y' flag for automatic confirmation.
 apt update -y
+
+# Check the exit status of the 'apt update' command using the 'check_err' function.
+# The first argument is the command executed, and the second argument is its exit status.
+# If the exit status is non-zero, print an error message and exit with status 1; otherwise, indicate a successful update.
 check_err "apt update -y" "$?"
 
-# Checks if the given software is already installed
-# Installs it if it is not installed
-# Skips if it is already installed
+
+
+# Invoke the 'install_it' function with the specified package name.
+# The 'install_it' function checks whether the package is already installed.
+# If the package is not installed, it installs the package using 'apt install -y'.
+# The 'check_err' function is used to verify the success of the installation.
 install_it "$package_name"
 
-# Start the service
+
+# Start the specified service using the 'start_it' function.
+# The 'start_it' function checks the current status of the service and takes appropriate actions:
+# - If the service is already running, it prints a message indicating that the service is running.
+# - If the service is dead, it prints a message, starts the service using 'systemctl start', and checks for errors using 'check_err'.
+# - If the service does not exist, it prints a message indicating that there is nothing to start.
 start_it "$service"
 
-# Enable
+
+# Enable the specified service using the 'enable_it' function.
+# The 'enable_it' function checks the boot status of the service and takes appropriate actions:
+# - If the service is already enabled, it prints a message indicating that the service is enabled.
+# - If the service is disabled, it prints a message, enables the service using 'systemctl enable', and checks for errors using 'check_err'.
+# - If the boot status is neither 'enabled' nor 'disabled', it prints a message indicating that there is nothing to do.
 enable_it "$service"
 
 
-#create site
+
+# Create a new site using the 'create_site' function with the specified site name.
+# The 'create_site' function performs the following tasks:
+# - Locates the nginx configuration file and extracts the nginx user.
+# - Checks if the site directory already exists; if it does, it exits with an error message.
+# - If the site directory does not exist, it creates the directory, assigns ownership to the nginx user, and sets appropriate permissions.
 create_site "$site_name"
 
-# Configure the site
+
+# Configure the Nginx site using the 'configure_site' function with the specified site name.
+# The 'configure_site' function performs the following tasks:
+# - Calls the 'remove_default' function to ensure the default Nginx site is removed.
+# - Creates a new configuration file for the specified site in /etc/nginx/sites-available.
+# - The configuration includes basic server settings, such as root directory, index files, server name or IP, and location settings.
+# - Creates a symbolic link in /etc/nginx/sites-enabled to enable the new site.
 configure_site "$site_name"
 
-# copying
-cp ./code/* "$path_to_new_site"
-systemctl restart $service
-check_err "systemctl restart $service" "$?"
+
+# Check if the specified project directory exists
+if [ -e "$project_dir" ]; then
+    # Display a message and change into the specified project directory
+    echo "CD into the $project_dir"
+    cd "$project_dir"
+
+    # Move all files and folders in the project directory to the specified site directory
+    echo "Moving the files and folders to the $path_to_new_site"
+    mv * "$path_to_new_site"
+
+    # Restart the specified service
+    echo "Restarting $service now..."
+    systemctl restart $service
+    check_err "systemctl restart $service" "$?"
+else
+    # Display an error message and exit with status 4 if the project directory does not exist
+    echo "$project_dir does not exist. Provide the path to the project folder, please."
+    exit 4
+fi
+
+
+
+
+
