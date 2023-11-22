@@ -30,7 +30,7 @@ server_name=$6
 #   - Replace placeholders with actual values when running the script.
 #   - Exits with status 3 if the expected number of arguments is not provided.
 if [ "$#" -ne 6 ]; then
-    echo "Usage: $0 <package name> <service name> <site name> <github_repo> <source_code_dir_name>"
+    echo "Usage: $0 <package name> <service name> <site name> <github_repo> <source_code_dir_name> <server_name>" 
     echo "Please provide all required arguments."
     exit 3
 fi
