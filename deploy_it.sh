@@ -167,7 +167,7 @@ get_nginx_user(){
     path_to_config_file=$(find / -type f -name "nginx.conf")
 
     # Extract the nginx user from the configuration file
-    nginx_user=$(cat "$path_to_config_file" | awk '/user/{print $2}')
+    nginx_user=$(cat "$path_to_config_file" | grep "user" | awk 'NR == 1{print $2}')
     nginx_user=$(echo "$nginx_user" | sed 's/;$//')
 }
 
