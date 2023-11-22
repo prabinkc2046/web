@@ -54,6 +54,9 @@ get_repo(){
 # Call the get_repo function with the provided GitHub link
 get_repo "$github_repo"
 
+
+# function that detects the distribtion of linux it is running under
+
 # Function to check the status of a command and exit if it fails
 # Usage: check_err <command> <status>
 #   <command>: The command to be executed
@@ -70,6 +73,18 @@ check_err(){
     fi
 }
 
+# Detect distro
+distro=""
+detect_distro(){
+    source /etc/os-release
+    if [ -n "$ID" ]; then
+        distro=$(echo "$ID" | tr '[:upper:]' '[:lower:]' )
+    else
+        echo "distro is not detected."
+    fi
+}
+
+detect_distro
 
 # Function to check if a package is installed and install it if not
 # Usage: install_it
@@ -78,19 +93,27 @@ check_err(){
 # - If the package is not present, it installs the package using apt.
 # - The installation is verified using the check_err function.
 install_it(){
-    # Check if the package is present in the list of installed packages
-    package_present=$(dpkg -l | awk '{print $2}' | awk -v package_name="$package_name" '{for(i=1;i<=NF;i++) if($i == package_name ) print "true"}')
-
-    # Print the current value of package_present
-
-    # If package is present, skip installation; otherwise, install the package
-    if "$package_present"; then
-        echo "$package_name is already installed. Skipping installation..."
-    else
-        echo "$package_name is not installed. Installing now..."
-        apt install "$package_name" -y  >> /dev/null
-        check_err "apt install -y $package_name" "$?"
-    fi
+    echo "Distor is $distro"
+    case $distro in 
+    "ubuntu"|"debian")
+        if dpkg -l | grep -iq $package_name; then
+            echo "$package_name is already installed. Skipping installation..."
+        else 
+            echo "$package_name is not installed. Installing now..."
+            apt install "$package_name" -y  >> /dev/null
+            check_err "apt install -y $package_name" "$?"
+        fi
+        ;;
+    "fedora")
+        if rpm -q $package_name; then
+            echo "$package_name is already installed. Skipping installation..."
+        else
+            echo "$package_name is not installed. Installing now..."
+            dnf install "$package_name" -y  >> /dev/null
+            check_err "dnf install $package_name" "$?"
+        fi
+        ;;
+    esac
 }
 
 
@@ -155,25 +178,49 @@ get_nginx_user(){
 # - If the site directory does not exist, it creates the directory, assigns ownership to the nginx user, and sets appropriate permissions.
 create_site(){
     # Find the nginx user name
-    get_nginx_user 
-    # Find the path to the default site directory
-    path_to_default_site_dir=/var/www/html
+    get_nginx_user
+    case $distro in 
+    "ubuntu"|"debian")
+        # Find the path to the default site directory
+        path_to_default_site_dir=/var/www/html
 
-    # Check if the site directory already exists
-    if [ -d "$path_to_default_site_dir/$site_name" ]; then
-        echo "$site_name already exists. Try another name. Exiting..."
-        exit 2
-    else
-        # Create the site directory
-        mkdir -p  "$path_to_default_site_dir/$site_name"
-        path_to_new_site="$path_to_default_site_dir"/"$site_name"
-        echo "$path_to_new_site is created."
+        # Check if the site directory already exists
+        if [ -d "$path_to_default_site_dir/$site_name" ]; then
+            echo "$site_name already exists. Try another name. Exiting..."
+            exit 2
+        else
+            # Create the site directory
+            mkdir -p  "$path_to_default_site_dir/$site_name"
+            path_to_new_site="$path_to_default_site_dir"/"$site_name"
+            echo "$path_to_new_site is created."
 
-        # Assign ownership and set permissions for the nginx user
-        echo "Assigning ownership and permission to $nginx_user"
-        chown "$nginx_user":"$nginx_user" -R "$path_to_new_site"
-        chmod 770 -R "$path_to_new_site"
-    fi
+            # Assign ownership and set permissions for the nginx user
+            echo "Assigning ownership and permission to $nginx_user"
+            chown "$nginx_user":"$nginx_user" -R "$path_to_new_site"
+            chmod 770 -R "$path_to_new_site"
+        fi
+        ;;
+    "fedora")
+        # Find the path to the default site directory
+        path_to_default_site_dir=/usr/share/nginx/html
+
+        # Check if the site directory already exists
+        if [ -d "$path_to_default_site_dir/$site_name" ]; then
+            echo "$site_name already exists. Try another name. Exiting..."
+            exit 2
+        else
+            # Create the site directory
+            mkdir -p  "$path_to_default_site_dir/$site_name"
+            path_to_new_site="$path_to_default_site_dir"/"$site_name"
+            echo "$path_to_new_site is created."
+
+            # Assign ownership and set permissions for the nginx user
+            echo "Assigning ownership and permission to $nginx_user"
+            chown "$nginx_user":"$nginx_user" -R "$path_to_new_site"
+            chmod 770 -R "$path_to_new_site"
+        fi
+        ;;
+    esac
 }
 
 # Function to configure a new Nginx site
@@ -182,28 +229,51 @@ create_site(){
 # - The configuration includes basic server settings, such as root directory, index files, server name or IP, and location settings.
 # - Creates a symbolic link in /etc/nginx/sites-enabled to enable the new site.
 configure_site(){
-    # Create a new configuration file for the site in sites-available
-    echo "Creating a Vhost for $site_name"
-    site="$site_name".conf
-    touch /etc/nginx/sites-available/$site
-    cat > /etc/nginx/sites-available/$site << EOF
-    server {
-        listen 80;
-        root $path_to_new_site;
-
-        # Add index.php to the list if you are using PHP
-        index index.html index.htm index.nginx-debian.html;
-        server_name $server_name;
-        location / {
-            # First attempt to serve request as file, then
-            # as directory, then fall back to displaying a 404.
-            try_files \$uri \$uri/ =404;
+    case $distro in 
+    "ubuntu"|"debian")
+        # Create a new configuration file for the site in sites-available
+        echo "Creating a Vhost for $site_name"
+        site="$site_name".conf
+        touch /etc/nginx/sites-available/$site
+        cat > /etc/nginx/sites-available/$site << EOF
+        server {
+            listen 80;
+            root $path_to_new_site;
+            # Add index.php to the list if you are using PHP
+            index index.html index.htm index.nginx-debian.html;
+            server_name $server_name;
+            location / {
+                # First attempt to serve request as file, then
+                # as directory, then fall back to displaying a 404.
+                try_files \$uri \$uri/ =404;
+            }
         }
-    }
-EOF
+        EOF
+        # Create a symbolic link to enable the new site
+        ln -s /etc/nginx/sites-available/$site /etc/nginx/sites-enabled/
 
-    # Create a symbolic link to enable the new site
-    ln -s /etc/nginx/sites-available/$site /etc/nginx/sites-enabled/
+    ;;
+    "fedora")
+        # Create a new configuration file for the site in sites-available
+        echo "Creating a Vhost for $site_name"
+        site="$site_name".conf
+        touch /etc/nginx/conf.d/$site
+        cat > /etc/nginx/conf.d/$site << EOF
+        server {
+            listen 80;
+            root $path_to_new_site;
+            # Add index.php to the list if you are using PHP
+            index index.html index.htm index.nginx-debian.html;
+            server_name $server_name;
+            location / {
+                # First attempt to serve request as file, then
+                # as directory, then fall back to displaying a 404.
+                try_files \$uri \$uri/ =404;
+            }
+        }
+        EOF
+    ;;
+    esac
 }
 
 deploy_it(){
@@ -224,7 +294,14 @@ deploy_it(){
 
 # Update package information using 'apt update' with the '-y' flag for automatic confirmation.
 echo "Updating the system ..."
-apt update -y > /dev/null 2>&1 | tee log_error.txt
+case $distro in
+"ubuntu"|"debian")
+    apt update -y >> /dev/null 2>&1 | tee log_error.txt
+    ;;
+"fedora")
+    dnf update -y >> /dev/null 2>&1 | tee log_error.txt
+    ;;
+esac
 
 # Check the exit status of the 'apt update' command using the 'check_err' function.
 # The first argument is the command executed, and the second argument is its exit status.
