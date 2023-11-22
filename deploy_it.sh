@@ -87,10 +87,8 @@ install_it(){
     if "$package_present"; then
         echo "$package_name is already installed. Skipping installation..."
     else
-        echo "
-        $package_name is not installed. Installing now...
-        "
-        apt install -y "$package_name" >> /dev/null
+        echo "$package_name is not installed. Installing now..."
+        apt install "$package_name" -y  >> /dev/null
         check_err "apt install -y $package_name" "$?"
     fi
 }
