@@ -7,7 +7,7 @@
 # an Nginx server. It handles package installation, service management, site
 # configuration, project deployment, and service restart.
 #
-# Usage: ./deploy_it.sh <nginx> <nginx> <site-name> <github-repo-link> <project directory name>
+# Usage: ./deploy_it.sh <nginx> <nginx> <site-name> <github-repo-link> <project directory name> <server-name>
 #
 # Important: This script is intended to run on Ubuntu as sudo.
 # Ensure you have backups before running the script.
@@ -90,7 +90,7 @@ install_it(){
         echo "
         $package_name is not installed. Installing now...
         "
-        apt install -y "$package_name"
+        apt install -y "$package_name" >> /dev/null
         check_err "apt install -y $package_name" "$?"
     fi
 }
