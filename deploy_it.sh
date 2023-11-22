@@ -26,7 +26,7 @@ source_code_dir_name=$5
 server_name=$6
 
 # Check if the required number of arguments is provided.
-# Usage: $0 <package name> <service name> <site name> <github_repo> <source_code_dir_name>
+# Usage: $0 <package name> <service name> <site name> <github_repo> <source_code_dir_name> <server_name>
 #   - Replace placeholders with actual values when running the script.
 #   - Exits with status 3 if the expected number of arguments is not provided.
 if [ "$#" -ne 6 ]; then
