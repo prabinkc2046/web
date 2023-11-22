@@ -7,19 +7,34 @@
 # The server_name_or_ip variable can be either an IP or domain name.
 # If an IP is used, it may result in an error on the second run due to a duplicate error. Use a domain name if available.
 
-# Check if the required number of arguments is provided or not
-if [ "$#" -ne 4 ]; then
-    echo "Usage: $0 <package name> <service name> <site name> <path to project dir>"
-    echo "sudo ./deploy_it.sh nginx nginx mynewwebsite /web"
-    exit 3
-fi
 
 # Global arguments
 package_name=$1
 service=$2
 site_name=$3
-project_dir=$4
+github_repo=$4
 server_name_or_ip=$(curl ipinfo.io/ip)
+
+# Check if the required number of arguments is provided or not
+if [ "$#" -ne 4 ]; then
+    echo "Usage: $0 <package name> <service name> <site name> <github_repo>"
+    echo "sudo ./deploy_it.sh nginx nginx mynewwebsite /web"
+    exit 3
+fi
+
+
+
+# Check if the provided github link is valid
+get_repo(){
+http_status=$(curl -s -o /dev/null -w "%{http_code}" -L "$github_repo")
+if [ "http_status" -ne 200 ]; then
+    echo "Http response from the git repo is not 200. Provide the correct link for your repo. Exiting.."
+    exit 4
+else
+    repo=$(echo "$github_repo" | awk -F/ '{print $NF}' | awk -F"." '{if (NF == 2){ print $(NF -1)} else if(NF == 3){print $(NF - 2)"."$(NF -1)} else if (NF == 4) {print $(NF -3)"."$(NF - 2)"."$(NF -1)} else {print"Your repo name contains more than 3 words separted by '.' this script can parse the repo name when it is less than or equal to 3 "}}')
+fi
+}
+get_repo "$github_repo"
 
 # Function to check the status of a command and exit if it fails
 # Usage: check_err <command> <status>
@@ -132,6 +147,14 @@ enable_it(){
     esac
 }
 
+get_nginx_user(){
+    # Find the path to the nginx configuration file
+    path_to_config_file=$(find / -type f -name "nginx.conf")
+
+    # Extract the nginx user from the configuration file
+    nginx_user=$(cat "$path_to_config_file" | awk '/user/{print $2}')
+    nginx_user=$(echo "$nginx_user" | sed 's/;$//')
+}
 
 # Function to create a new site directory and set ownership and permissions
 # Usage: create_site
@@ -139,13 +162,8 @@ enable_it(){
 # - It then checks if the site directory already exists. If it does, it exits with an error message.
 # - If the site directory does not exist, it creates the directory, assigns ownership to the nginx user, and sets appropriate permissions.
 create_site(){
-    # Find the path to the nginx configuration file
-    path_to_config_file=$(find / -type f -name "nginx.conf")
-
-    # Extract the nginx user from the configuration file
-    nginx_user=$(cat "$path_to_config_file" | awk '/user/{print $2}')
-    nginx_user=$(echo "$nginx_user" | sed 's/;$//')
-
+    # Find the nginx user name
+    get_nginx_user 
     # Find the path to the default site directory
     path_to_default_site_dir=$(find / -type d -name "www")
 
@@ -221,6 +239,23 @@ EOF
     ln -s /etc/nginx/sites-available/$site_name /etc/nginx/sites-enabled/
 }
 
+deploy_it(){
+    echo "Pulling the source code from the given repo"
+    git clone "$github_repo"
+    # Display a message and change into the specified project directory
+    echo "CD into the $repo"
+    cd "$repo"
+
+    # Move all files and folders in the project directory to the specified site directory
+    echo "Moving the files and folders to the $path_to_new_site"
+    mv * "$path_to_new_site"
+
+    # Restart the specified service
+    echo "Restarting $service now..."
+    systemctl restart $service
+    check_err "systemctl restart $service" "$?"
+}
+
 
 
 # Update package information using 'apt update' with the '-y' flag for automatic confirmation.
@@ -274,27 +309,8 @@ create_site "$site_name"
 configure_site "$site_name"
 
 
-# Check if the specified project directory exists
-if [ -e "$project_dir" ]; then
-    # Display a message and change into the specified project directory
-    echo "CD into the $project_dir"
-    cd "$project_dir"
-
-    # Move all files and folders in the project directory to the specified site directory
-    echo "Moving the files and folders to the $path_to_new_site"
-    mv * "$path_to_new_site"
-
-    # Restart the specified service
-    echo "Restarting $service now..."
-    systemctl restart $service
-    check_err "systemctl restart $service" "$?"
-else
-    # Display an error message and exit with status 4 if the project directory does not exist
-    echo "$project_dir does not exist. Provide the path to the project folder, please."
-    exit 4
-fi
-
-
-
-
+# Pull the source code from the git hub repo and CD into that repo
+# Move the content of the repo into the new site directory
+# Restart the nginx service
+deploy_it "$github_repo"
 
