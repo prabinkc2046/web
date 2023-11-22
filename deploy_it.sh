@@ -31,8 +31,7 @@ server_name=$6
 #   - Exits with status 3 if the expected number of arguments is not provided.
 if [ "$#" -ne 6 ]; then
     echo "Usage: $0 <package name> <service name> <site name> <github_repo> <source_code_dir_name> <server_name>" 
-    echo "Please provide all required arguments."
-    exit 3
+    exit
 fi
 
 
@@ -45,17 +44,15 @@ get_repo(){
     # If the HTTP status is not 200, display an error message and exit with status 4
     if [ $http_status -ne 200 ]; then
         echo "HTTP response from the GitHub repository is not 200. Provide the correct link for your repository. Exiting..."
-        exit 4
+        exit
     else
         # Extract the repository name from the GitHub link
         repo=$(echo "$github_repo" | awk -F/ '{print $NF}' | awk -F"." '{if (NF == 2){ print $(NF -1)} else {print $NF}}')
     fi
 }
+
 # Call the get_repo function with the provided GitHub link
 get_repo "$github_repo"
-
-
-# function that detects the distribtion of linux it is running under
 
 # Function to check the status of a command and exit if it fails
 # Usage: check_err <command> <status>
@@ -69,7 +66,7 @@ check_err(){
         echo "[$command] was successful."
     else
         echo "Error while [$command]. Exiting"
-        exit 1
+        exit 
     fi
 }
 
@@ -83,7 +80,6 @@ detect_distro(){
         echo "distro is not detected."
     fi
 }
-
 detect_distro
 
 # Function to check if a package is installed and install it if not
@@ -104,8 +100,8 @@ install_it(){
             check_err "apt install -y $package_name" "$?"
         fi
         ;;
-    "fedora")
-        if rpm -q $package_name; then
+    "fedora"|"centos")
+        if rpm -q --quiet $package_name; then
             echo "$package_name is already installed. Skipping installation..."
         else
             echo "$package_name is not installed. Installing now..."
@@ -140,7 +136,7 @@ start_it(){
         ;;
         "failed")
         echo "$service has failed. Exiting..."
-	exit 5
+	exit 
 	;;
     esac
 }
@@ -177,7 +173,7 @@ get_nginx_user(){
 # - It then checks if the site directory already exists. If it does, it exits with an error message.
 # - If the site directory does not exist, it creates the directory, assigns ownership to the nginx user, and sets appropriate permissions.
 create_site(){
-    # Find the nginx user name
+    # Call get_nginx_user function to find the name of nginx user 
     get_nginx_user
     case $distro in 
     "ubuntu"|"debian")
@@ -187,7 +183,7 @@ create_site(){
         # Check if the site directory already exists
         if [ -d "$path_to_default_site_dir/$site_name" ]; then
             echo "$site_name already exists. Try another name. Exiting..."
-            exit 2
+            exit 
         else
             # Create the site directory
             mkdir -p  "$path_to_default_site_dir/$site_name"
@@ -200,14 +196,15 @@ create_site(){
             chmod 770 -R "$path_to_new_site"
         fi
         ;;
-    "fedora")
+
+    "fedora"|"centos")
         # Find the path to the default site directory
         path_to_default_site_dir=/usr/share/nginx/html
 
         # Check if the site directory already exists
         if [ -d "$path_to_default_site_dir/$site_name" ]; then
             echo "$site_name already exists. Try another name. Exiting..."
-            exit 2
+            exit 
         else
             # Create the site directory
             mkdir -p  "$path_to_default_site_dir/$site_name"
