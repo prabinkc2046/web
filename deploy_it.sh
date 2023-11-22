@@ -204,18 +204,15 @@ remove_default(){
     fi
 }
 
-
+# Call remove_default to remove the default Nginx site configuration
+remove_default
 
 # Function to configure a new Nginx site
 # Usage: configure_site
-# - Calls remove_default to ensure the default Nginx site is removed.
 # - Creates a new configuration file for the specified site in /etc/nginx/sites-available.
 # - The configuration includes basic server settings, such as root directory, index files, server name or IP, and location settings.
 # - Creates a symbolic link in /etc/nginx/sites-enabled to enable the new site.
 configure_site(){
-    # Call remove_default to remove the default Nginx site configuration
-    remove_default
-
     # Create a new configuration file for the site in sites-available
     touch /etc/nginx/sites-available/$site_name
     cat > /etc/nginx/sites-available/$site_name << EOF
