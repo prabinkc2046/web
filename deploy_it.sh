@@ -246,9 +246,9 @@ deploy_it(){
     echo "CD into the $repo"
     cd "$repo"
 
-    # Move all files and folders in the project directory to the specified site directory
-    echo "Moving the files and folders to the $path_to_new_site"
-    mv * "$path_to_new_site"
+    # Copying all files and folders in the project directory to the specified site directory
+    echo "Coping the files and folders to the $path_to_new_site"
+    cp * "$path_to_new_site"
 
     # Restart the specified service
     echo "Restarting $service now..."
