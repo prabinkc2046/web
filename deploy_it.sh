@@ -248,7 +248,7 @@ configure_site(){
                 try_files \$uri \$uri/ =404;
             }
         }
-        EOF
+EOF
         # Create a symbolic link to enable the new site
         ln -s /etc/nginx/sites-available/$site /etc/nginx/sites-enabled/
 
@@ -271,7 +271,7 @@ configure_site(){
                 try_files \$uri \$uri/ =404;
             }
         }
-        EOF
+EOF
     ;;
     esac
 }
