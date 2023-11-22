@@ -1,11 +1,20 @@
 #!/bin/bash
 
-# This script is intended to run on Ubuntu 22.04
-# This script needs to be run with sudo
-# This script takes 3 arguments: <package name> <service name> <site name>
-# This script should be run as sudo, for example: sudo ./script.sh <package name> <service name> <site name>
-# The server_name_or_ip variable can be either an IP or domain name.
-# If an IP is used, it may result in an error on the second run due to a duplicate error. Use a domain name if available.
+################################################################################
+# Project Setup Script
+# Author: Prabin
+# Description: This Bash script automates the setup process for a web project on
+# an Nginx server. It handles package installation, service management, site
+# configuration, project deployment, and service restart.
+#
+# Usage: ./deploy_it.sh <nginx> <nginx> <site-name> <github-repo-link> <project directory name>
+#
+# Important: This script is intended to run on Ubuntu as sudo.
+# Ensure you have backups before running the script.
+#
+# License: MIT License (see LICENSE file for details)
+################################################################################
+
 
 
 # Global arguments
@@ -13,27 +22,36 @@ package_name=$1
 service=$2
 site_name=$3
 github_repo=$4
-server_name_or_ip=$(curl ipinfo.io/ip)
+source_code_dir_name=$5
+server_name=$6
 
-# Check if the required number of arguments is provided or not
-if [ "$#" -ne 4 ]; then
-    echo "Usage: $0 <package name> <service name> <site name> <github_repo>"
-    echo "sudo ./deploy_it.sh nginx nginx mynewwebsite /web"
+# Check if the required number of arguments is provided.
+# Usage: $0 <package name> <service name> <site name> <github_repo> <source_code_dir_name>
+#   - Replace placeholders with actual values when running the script.
+#   - Exits with status 3 if the expected number of arguments is not provided.
+if [ "$#" -ne 6 ]; then
+    echo "Usage: $0 <package name> <service name> <site name> <github_repo> <source_code_dir_name>"
+    echo "Please provide all required arguments."
     exit 3
 fi
 
 
 
-# Check if the provided github link is valid
+# Check if the provided GitHub link is valid
 get_repo(){
-http_status=$(curl -s -o /dev/null -w "%{http_code}" -L "$github_repo")
-if [ "http_status" -ne 200 ]; then
-    echo "Http response from the git repo is not 200. Provide the correct link for your repo. Exiting.."
-    exit 4
-else
-    repo=$(echo "$github_repo" | awk -F/ '{print $NF}' | awk -F"." '{if (NF == 2){ print $(NF -1)} else if(NF == 3){print $(NF - 2)"."$(NF -1)} else if (NF == 4) {print $(NF -3)"."$(NF - 2)"."$(NF -1)} else {print"Your repo name contains more than 3 words separted by '.' this script can parse the repo name when it is less than or equal to 3 "}}')
-fi
+    # Use curl to check the HTTP status of the GitHub repository link
+    http_status=$(curl -s -o /dev/null -w "%{http_code}" -L "$github_repo")
+
+    # If the HTTP status is not 200, display an error message and exit with status 4
+    if [ $http_status -ne 200 ]; then
+        echo "HTTP response from the GitHub repository is not 200. Provide the correct link for your repository. Exiting..."
+        exit 4
+    else
+        # Extract the repository name from the GitHub link
+        repo=$(echo "$github_repo" | awk -F/ '{print $NF}' | awk -F"." '{if (NF == 2){ print $(NF -1)} else {print $NF}}')
+    fi
 }
+# Call the get_repo function with the provided GitHub link
 get_repo "$github_repo"
 
 # Function to check the status of a command and exit if it fails
@@ -45,13 +63,9 @@ check_err(){
     command=$1
     status=$2
     if [ "$status" == "0" ]; then
-        echo "
-        $command was successful.
-        "
+        echo "[$command] was successful."
     else
-        echo "
-        Error while $command. Exiting
-        "
+        echo "Error while [$command]. Exiting"
         exit 1
     fi
 }
@@ -68,7 +82,6 @@ install_it(){
     package_present=$(dpkg -l | awk '{print $2}' | awk -v package_name="$package_name" '{for(i=1;i<=NF;i++) if($i == package_name ) print "true"}')
 
     # Print the current value of package_present
-    echo "the value of install is: $package_present"
 
     # If package is present, skip installation; otherwise, install the package
     if "$package_present"; then
@@ -92,27 +105,22 @@ install_it(){
 # - If the service status is neither "active" nor "dead," it prints a message indicating that the service does not exist.
 start_it(){
     # Get the status of the service
-    service_status=$(systemctl status $service | grep -i "active" | awk '{print $3}')
+    service_status=$(systemctl status nginx | grep -i "active" | awk '{for (i=1; i<=NF; i++){if($i ~ /.running./){print "running"}else if($i ~ /.dead./){print "dead"} else if ($i ~ /failed/){print "failed"}}}')
 
     # Case statement to handle different service statuses
     case $service_status in
-        "(running)")
-        echo "
-        $service is running.
-        "
+        "running")
+        echo "$service is running. Nothing to do."
         ;;
-        "(dead)")
-        echo "
-        $service is dead. Starting $service now...
-        "
+        "dead")
+        echo "$service is dead. Starting $service now..."
         systemctl start $service
         check_err "systemctl start $service" "$?"
         ;;
-        *)
-        echo "
-        $service does not exist. No need to start this service.
-        "
-        ;;
+        "failed")
+        echo "$service has failed. Exiting..."
+	exit 5
+	;;
     esac
 }
 
@@ -122,29 +130,15 @@ start_it(){
 # - The function retrieves the boot status of the specified service using systemctl.
 # - If the service is already "enabled," it prints a message indicating that the service is already enabled.
 # - If the service is "disabled," it prints a message, enables the service using systemctl, and checks for errors using check_err.
-# - If the boot status is neither "enabled" nor "disabled," it prints a message indicating that there is nothing to do.
 enable_it(){
-    # Get the boot status of the service
-    boot_status=$(systemctl status $service | grep -i "loaded" | awk -F";" '{print $2}')
-
-    # Case statement to handle different service boot statuses
-    case "$boot_status" in
-        "enabled")
-        echo "
-        $service is enabled.
-        "
-        ;;
-        "disabled")
-        echo "
-        $service is disabled. Enabling it now...
-        "
-        systemctl enable $service
-        check_err "systemctl enable $service" "$?"
-        ;;
-        *)
-        echo "Nothing to do. Skipping..."
-        ;;
-    esac
+	# Check if the system is enabled and enable it if disabled
+	if systemctl is-enabled --quiet $service; then
+		echo "service:$service is enabled. Nothing to do"
+	else
+		echo "service:$service is disabled. Enabling it now.."
+		systemctl enable $service >> /dev/null
+		check_err "systemctl enable $service" "$?"
+	fi
 }
 
 get_nginx_user(){
@@ -165,7 +159,7 @@ create_site(){
     # Find the nginx user name
     get_nginx_user 
     # Find the path to the default site directory
-    path_to_default_site_dir=$(find / -type d -name "www")
+    path_to_default_site_dir=/var/www/html
 
     # Check if the site directory already exists
     if [ -d "$path_to_default_site_dir/$site_name" ]; then
@@ -173,8 +167,8 @@ create_site(){
         exit 2
     else
         # Create the site directory
-        mkdir "$path_to_default_site_dir/$site_name"
-        path_to_new_site=$(find "$path_to_default_site_dir" -type d -name "$site_name")
+        mkdir -p  "$path_to_default_site_dir/$site_name"
+        path_to_new_site="$path_to_default_site_dir"/"$site_name"
         echo "$path_to_new_site is created."
 
         # Assign ownership and set permissions for the nginx user
@@ -184,29 +178,6 @@ create_site(){
     fi
 }
 
-# Function to remove the default Nginx site configuration
-# Usage: remove_default
-# - Checks if the default configuration file in /etc/nginx/sites-available exists.
-# - If it exists, it renames the file to default.bak.
-# - Checks if the default configuration file in /etc/nginx/sites-enabled exists.
-# - If it exists, it removes the file to disable the default site.
-remove_default(){
-    # Check if the default configuration file in sites-available exists
-    if [ -f /etc/nginx/sites-available/default ]; then
-        # Rename the default configuration file to default.bak
-        mv /etc/nginx/sites-available/default /etc/nginx/sites-available/default.bak
-    fi
-
-    # Check if the default configuration file in sites-enabled exists
-    if [ -f /etc/nginx/sites-enabled/default ]; then
-        # Remove the default configuration file to disable the default site
-        rm /etc/nginx/sites-enabled/default
-    fi
-}
-
-# Call remove_default to remove the default Nginx site configuration
-remove_default
-
 # Function to configure a new Nginx site
 # Usage: configure_site
 # - Creates a new configuration file for the specified site in /etc/nginx/sites-available.
@@ -214,16 +185,17 @@ remove_default
 # - Creates a symbolic link in /etc/nginx/sites-enabled to enable the new site.
 configure_site(){
     # Create a new configuration file for the site in sites-available
-    touch /etc/nginx/sites-available/$site_name
-    cat > /etc/nginx/sites-available/$site_name << EOF
+    echo "Creating a Vhost for $site_name"
+    site="$site_name".conf
+    touch /etc/nginx/sites-available/$site
+    cat > /etc/nginx/sites-available/$site << EOF
     server {
-        listen 80 default_server;
-        listen [::]:80 default_server;
-        root "$path_to_new_site";
+        listen 80;
+        root $path_to_new_site;
 
         # Add index.php to the list if you are using PHP
         index index.html index.htm index.nginx-debian.html;
-        server_name "$server_name_or_ip";
+        server_name $server_name;
         location / {
             # First attempt to serve request as file, then
             # as directory, then fall back to displaying a 404.
@@ -233,20 +205,17 @@ configure_site(){
 EOF
 
     # Create a symbolic link to enable the new site
-    ln -s /etc/nginx/sites-available/$site_name /etc/nginx/sites-enabled/
+    ln -s /etc/nginx/sites-available/$site /etc/nginx/sites-enabled/
 }
 
 deploy_it(){
-    echo "Pulling the source code from the given repo"
-    git clone "$github_repo"
+    echo "Pulling the source code from the repo $github_repo"
+    git clone -q "$github_repo" 
     # Display a message and change into the specified project directory
-    echo "CD into the $repo"
-    cd "$repo"
-
     # Copying all files and folders in the project directory to the specified site directory
     echo "Coping the files and folders to the $path_to_new_site"
-    cp * "$path_to_new_site"
-
+    cp -R  "$repo"/"$source_code_dir_name"/*  "$path_to_new_site"
+    rm -R  "$repo"
     # Restart the specified service
     echo "Restarting $service now..."
     systemctl restart $service
@@ -256,19 +225,19 @@ deploy_it(){
 
 
 # Update package information using 'apt update' with the '-y' flag for automatic confirmation.
-apt update -y
+echo "Updating the system ..."
+apt update -y > /dev/null 2>&1 | tee log_error.txt
 
 # Check the exit status of the 'apt update' command using the 'check_err' function.
 # The first argument is the command executed, and the second argument is its exit status.
 # If the exit status is non-zero, print an error message and exit with status 1; otherwise, indicate a successful update.
 check_err "apt update -y" "$?"
 
-
-
 # Invoke the 'install_it' function with the specified package name.
 # The 'install_it' function checks whether the package is already installed.
 # If the package is not installed, it installs the package using 'apt install -y'.
 # The 'check_err' function is used to verify the success of the installation.
+echo "Installing the package if not already installed. but 'll skip if installed."
 install_it "$package_name"
 
 
@@ -277,16 +246,16 @@ install_it "$package_name"
 # - If the service is already running, it prints a message indicating that the service is running.
 # - If the service is dead, it prints a message, starts the service using 'systemctl start', and checks for errors using 'check_err'.
 # - If the service does not exist, it prints a message indicating that there is nothing to start.
+echo "Starting service if not already installed.."
 start_it "$service"
-
 
 # Enable the specified service using the 'enable_it' function.
 # The 'enable_it' function checks the boot status of the service and takes appropriate actions:
 # - If the service is already enabled, it prints a message indicating that the service is enabled.
 # - If the service is disabled, it prints a message, enables the service using 'systemctl enable', and checks for errors using 'check_err'.
 # - If the boot status is neither 'enabled' nor 'disabled', it prints a message indicating that there is nothing to do.
+echo "Enabling the service if disabled."
 enable_it "$service"
-
 
 
 # Create a new site using the 'create_site' function with the specified site name.
@@ -296,18 +265,15 @@ enable_it "$service"
 # - If the site directory does not exist, it creates the directory, assigns ownership to the nginx user, and sets appropriate permissions.
 create_site "$site_name"
 
-
 # Configure the Nginx site using the 'configure_site' function with the specified site name.
 # The 'configure_site' function performs the following tasks:
 # - Calls the 'remove_default' function to ensure the default Nginx site is removed.
 # - Creates a new configuration file for the specified site in /etc/nginx/sites-available.
 # - The configuration includes basic server settings, such as root directory, index files, server name or IP, and location settings.
 # - Creates a symbolic link in /etc/nginx/sites-enabled to enable the new site.
-configure_site "$site_name"
-
+configure_site "$site_name" "$server_name"
 
 # Pull the source code from the git hub repo and CD into that repo
 # Move the content of the repo into the new site directory
 # Restart the nginx service
-deploy_it "$github_repo"
-
+deploy_it "$github_repo" "$source_code_dir_name"
