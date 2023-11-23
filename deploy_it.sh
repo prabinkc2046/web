@@ -7,7 +7,7 @@
 # an Nginx server. It handles package installation, service management, site
 # configuration, project deployment, and service restart.
 #
-# Usage: ./deploy_it.sh <nginx> <nginx> <site-name> <github-repo-link> <project directory name> <server-name>
+# Usage: ./deploy_it.sh <site-name> <github-repo-link> <project directory name> <server-name>
 #
 # Important: This script is intended to run on Ubuntu as sudo.
 # Ensure you have backups before running the script.
@@ -18,19 +18,17 @@
 
 
 # Global arguments
-package_name=$1
-service=$2
-site_name=$3
-github_repo=$4
-source_code_dir_name=$5
-server_name=$6
+site_name=$1
+github_repo=$2
+source_code_dir_name=$3
+server_name=$4
 
 # Check if the required number of arguments is provided.
 # Usage: $0 <package name> <service name> <site name> <github_repo> <source_code_dir_name> <server_name>
 #   - Replace placeholders with actual values when running the script.
 #   - Exits with status 3 if the expected number of arguments is not provided.
-if [ "$#" -ne 6 ]; then
-    echo "Usage: $0 <package name> <service name> <site name> <github_repo> <source_code_dir_name> <server_name>" 
+if [ "$#" -ne 4 ]; then
+    echo "Usage: $0 <site name> <github_repo> <source_code_dir_name> <server_name>" 
     exit
 fi
 
@@ -53,6 +51,19 @@ get_repo(){
 
 # Call the get_repo function with the provided GitHub link
 get_repo "$github_repo"
+
+# Check if the project directory exits
+check_if_project_dir_exists(){
+    #Move into the repo
+    cd "$repo"
+    # check if provided directory exists
+    if [ -d "$source_code_dir_name" ]; then
+        return true
+    else
+        return false
+    fi
+}
+
 
 # Function to check the status of a command and exit if it fails
 # Usage: check_err <command> <status>
@@ -77,7 +88,7 @@ detect_distro(){
     if [ -n "$ID" ]; then
         distro=$(echo "$ID" | tr '[:upper:]' '[:lower:]' )
     else
-        echo "distro is not detected."
+        echo "distro is not detected. This script is not suitabel for running in this operating system"
     fi
 }
 detect_distro
@@ -89,27 +100,29 @@ detect_distro
 # - If the package is not present, it installs the package using apt.
 # - The installation is verified using the check_err function.
 install_it(){
-    echo "Distor is $distro"
-    case $distro in 
-    "ubuntu"|"debian")
-        if dpkg -l | grep -iq $package_name; then
-            echo "$package_name is already installed. Skipping installation..."
-        else 
-            echo "$package_name is not installed. Installing now..."
-            apt install "$package_name" -y  >> /dev/null
-            check_err "apt install -y $package_name" "$?"
-        fi
-        ;;
-    "fedora"|"centos")
-        if rpm -q --quiet $package_name; then
-            echo "$package_name is already installed. Skipping installation..."
-        else
-            echo "$package_name is not installed. Installing now..."
-            dnf install "$package_name" -y  >> /dev/null
-            check_err "dnf install $package_name" "$?"
-        fi
-        ;;
-    esac
+    packages=(nginx git)
+    for package_name in ${packages[@]}; do
+        case $distro in 
+        "ubuntu"|"debian")
+            if dpkg -l | grep -iq $package_name; then
+                echo "$package_name is already installed. Skipping installation..."
+            else 
+                echo "$package_name is not installed. Installing now..."
+                apt install "$package_name" -y  >> /dev/null
+                check_err "apt install -y $package_name" "$?"
+            fi
+            ;;
+        "fedora"|"centos")
+            if rpm -q --quiet $package_name; then
+                echo "$package_name is already installed. Skipping installation..."
+            else
+                echo "$package_name is not installed. Installing now..."
+                dnf install "$package_name" -y  >> /dev/null
+                check_err "dnf install $package_name" "$?"
+            fi
+            ;;
+        esac
+    done    
 }
 
 
@@ -127,16 +140,18 @@ start_it(){
     # Case statement to handle different service statuses
     case $service_status in
         "running")
-        echo "$service is running. Nothing to do."
+        echo "nginx is already running. No need to start it."
         ;;
+
         "dead")
-        echo "$service is dead. Starting $service now..."
-        systemctl start $service
-        check_err "systemctl start $service" "$?"
+        echo "nginx is dead. Starting it now..."
+        systemctl start nginx
+        check_err "systemctl start nginx" "$?"
         ;;
+
         "failed")
-        echo "$service has failed. Exiting..."
-	exit 
+        echo "nginx has failed. Exiting..."
+	    exit 
 	;;
     esac
 }
@@ -149,12 +164,12 @@ start_it(){
 # - If the service is "disabled," it prints a message, enables the service using systemctl, and checks for errors using check_err.
 enable_it(){
 	# Check if the system is enabled and enable it if disabled
-	if systemctl is-enabled --quiet $service; then
-		echo "service:$service is enabled. Nothing to do"
+	if systemctl is-enabled --quiet nginx; then
+		echo "nginx is enabled. No need to enable it."
 	else
-		echo "service:$service is disabled. Enabling it now.."
-		systemctl enable $service >> /dev/null
-		check_err "systemctl enable $service" "$?"
+		echo "nginx is disabled. Enabling it now.."
+		systemctl enable nginx >> /dev/null
+		check_err "systemctl enable nginx" "$?"
 	fi
 }
 
@@ -165,6 +180,7 @@ get_nginx_user(){
     # Extract the nginx user from the configuration file
     nginx_user=$(cat "$path_to_config_file" | grep "user" | awk 'NR == 1{print $2}')
     nginx_user=$(echo "$nginx_user" | sed 's/;$//')
+    echo "Nginx user found: $nginx_user"
 }
 
 # Function to create a new site directory and set ownership and permissions
@@ -175,6 +191,7 @@ get_nginx_user(){
 create_site(){
     # Call get_nginx_user function to find the name of nginx user 
     get_nginx_user
+    echo "Creating a $site under $nginx_user ownership"
     case $distro in 
     "ubuntu"|"debian")
         # Find the path to the default site directory
@@ -182,16 +199,16 @@ create_site(){
 
         # Check if the site directory already exists
         if [ -d "$path_to_default_site_dir/$site_name" ]; then
-            echo "$site_name already exists. Try another name. Exiting..."
+            echo "$site_name already exists. Give a different name for site. Exiting..."
             exit 
         else
             # Create the site directory
             mkdir -p  "$path_to_default_site_dir/$site_name"
             path_to_new_site="$path_to_default_site_dir"/"$site_name"
-            echo "$path_to_new_site is created."
+            echo "New site directory $path_to_new_site is created."
 
             # Assign ownership and set permissions for the nginx user
-            echo "Assigning ownership and permission to $nginx_user"
+            echo "Assigning ownership and permission to $nginx_user for site $path_to_new_site"
             chown "$nginx_user":"$nginx_user" -R "$path_to_new_site"
             chmod 770 -R "$path_to_new_site"
         fi
@@ -209,10 +226,10 @@ create_site(){
             # Create the site directory
             mkdir -p  "$path_to_default_site_dir/$site_name"
             path_to_new_site="$path_to_default_site_dir"/"$site_name"
-            echo "$path_to_new_site is created."
+            echo "New site directory $path_to_new_site is created."
 
             # Assign ownership and set permissions for the nginx user
-            echo "Assigning ownership and permission to $nginx_user"
+            echo "Assigning ownership and permission to $nginx_user for site $path_to_new_site"
             chown "$nginx_user":"$nginx_user" -R "$path_to_new_site"
             chmod 770 -R "$path_to_new_site"
         fi
@@ -229,9 +246,8 @@ configure_site(){
     case $distro in 
     "ubuntu"|"debian")
         # Create a new configuration file for the site in sites-available
-        echo "Creating a Vhost for $site_name"
+        echo "Creating a virtual host for $site_name"
         site="$site_name".conf
-        touch /etc/nginx/sites-available/$site
         cat > /etc/nginx/sites-available/$site << EOF
         server {
             listen 80;
@@ -240,31 +256,24 @@ configure_site(){
             index index.html index.htm index.nginx-debian.html;
             server_name $server_name;
             location / {
-                # First attempt to serve request as file, then
-                # as directory, then fall back to displaying a 404.
                 try_files \$uri \$uri/ =404;
             }
         }
 EOF
         # Create a symbolic link to enable the new site
         ln -s /etc/nginx/sites-available/$site /etc/nginx/sites-enabled/
-
     ;;
     "fedora")
         # Create a new configuration file for the site in sites-available
-        echo "Creating a Vhost for $site_name"
+        echo "Creating a virtual host for $site_name"
         site="$site_name".conf
-        touch /etc/nginx/conf.d/$site
         cat > /etc/nginx/conf.d/$site << EOF
         server {
             listen 80;
             root $path_to_new_site;
-            # Add index.php to the list if you are using PHP
             index index.html index.htm index.nginx-debian.html;
             server_name $server_name;
             location / {
-                # First attempt to serve request as file, then
-                # as directory, then fall back to displaying a 404.
                 try_files \$uri \$uri/ =404;
             }
         }
@@ -278,39 +287,52 @@ deploy_it(){
     git clone -q "$github_repo" 
     # Display a message and change into the specified project directory
     # Copying all files and folders in the project directory to the specified site directory
-    echo "Coping the files and folders to the $path_to_new_site"
-    cp -R  "$repo"/"$source_code_dir_name"/*  "$path_to_new_site"
-    rm -R  "$repo"
-    # Restart the specified service
-    echo "Restarting $service now..."
-    systemctl restart $service
-    check_err "systemctl restart $service" "$?"
+    echo "Checking if the source code project directory exists"
+    if check_if_project_dir_exists; then
+        echo "$source_code_dir_name exists in $repo. Deployment starting shortly..."
+        echo "Coping the files and folders to the $path_to_new_site"
+        cp -R  "$repo"/"$source_code_dir_name"/*  "$path_to_new_site"
+        rm -R  "$repo"
+        # Restart the specified service
+        echo "Restarting nginx now..."
+        systemctl restart nginx
+        check_err "systemctl restart nginx" "$?"
+    else
+        echo "$source_code_dir_name does not exists in $repo. Deployment whatever $repo contains..."
+        echo "Coping the files and folders to the $path_to_new_site"
+        cp -R  "$repo"/*  "$path_to_new_site"
+        rm -R  "$repo"
+        # Restart the specified service
+        echo "Restarting nginx now..."
+        systemctl restart nginx
+        check_err "systemctl restart nginx" "$?"    
 }
 
 
 
-# Update package information using 'apt update' with the '-y' flag for automatic confirmation.
-echo "Updating the system ..."
+# Update package information based on detected distribution of operating system.
+update_it(){
+    echo "Updating the system ..."
 case $distro in
 "ubuntu"|"debian")
     apt update -y >> /dev/null 2>&1 | tee log_error.txt
+    check_err "apt update -y" "$?"
     ;;
-"fedora")
+"fedora"|"cetos")
     dnf update -y >> /dev/null 2>&1 | tee log_error.txt
+    check_err "apt update -y" "$?"
     ;;
 esac
+}
 
-# Check the exit status of the 'apt update' command using the 'check_err' function.
-# The first argument is the command executed, and the second argument is its exit status.
-# If the exit status is non-zero, print an error message and exit with status 1; otherwise, indicate a successful update.
-check_err "apt update -y" "$?"
+#Update system package
+update_it
 
 # Invoke the 'install_it' function with the specified package name.
 # The 'install_it' function checks whether the package is already installed.
 # If the package is not installed, it installs the package using 'apt install -y'.
 # The 'check_err' function is used to verify the success of the installation.
-echo "Installing the package if not already installed. but 'll skip if installed."
-install_it "$package_name"
+install_it 
 
 
 # Start the specified service using the 'start_it' function.
@@ -318,16 +340,14 @@ install_it "$package_name"
 # - If the service is already running, it prints a message indicating that the service is running.
 # - If the service is dead, it prints a message, starts the service using 'systemctl start', and checks for errors using 'check_err'.
 # - If the service does not exist, it prints a message indicating that there is nothing to start.
-echo "Starting service if not already installed.."
-start_it "$service"
+start_it 
 
 # Enable the specified service using the 'enable_it' function.
 # The 'enable_it' function checks the boot status of the service and takes appropriate actions:
 # - If the service is already enabled, it prints a message indicating that the service is enabled.
 # - If the service is disabled, it prints a message, enables the service using 'systemctl enable', and checks for errors using 'check_err'.
 # - If the boot status is neither 'enabled' nor 'disabled', it prints a message indicating that there is nothing to do.
-echo "Enabling the service if disabled."
-enable_it "$service"
+enable_it 
 
 
 # Create a new site using the 'create_site' function with the specified site name.
