@@ -53,14 +53,15 @@ get_repo(){
 get_repo "$github_repo"
 
 # Check if the project directory exits
+project_dir_exists=""
 check_if_project_dir_exists(){
     #Move into the repo
     cd "$repo"
     # check if provided directory exists
     if [ -d "$source_code_dir_name" ]; then
-        return true
+        project_dir_exists="yes"
     else
-        return false
+        project_dir_exists="no"
     fi
 }
 
@@ -175,7 +176,7 @@ enable_it(){
 
 get_nginx_user(){
     # Find the path to the nginx configuration file
-    path_to_config_file=$(find / -type f -name "nginx.conf")
+    path_to_config_file=/etc/nginx/nginx.conf
 
     # Extract the nginx user from the configuration file
     nginx_user=$(cat "$path_to_config_file" | grep "user" | awk 'NR == 1{print $2}')
@@ -288,7 +289,8 @@ deploy_it(){
     # Display a message and change into the specified project directory
     # Copying all files and folders in the project directory to the specified site directory
     echo "Checking if the source code project directory exists"
-    if check_if_project_dir_exists; then
+    check_if_project_dir_exists
+    if [ "project_dir_exists" == "yes" ]; then
         echo "$source_code_dir_name exists in $repo. Deployment starting shortly..."
         echo "Coping the files and folders to the $path_to_new_site"
         cp -R  "$repo"/"$source_code_dir_name"/*  "$path_to_new_site"
@@ -305,7 +307,8 @@ deploy_it(){
         # Restart the specified service
         echo "Restarting nginx now..."
         systemctl restart nginx
-        check_err "systemctl restart nginx" "$?"    
+        check_err "systemctl restart nginx" "$?"
+    fi    
 }
 
 
