@@ -192,7 +192,7 @@ get_nginx_user(){
 create_site(){
     # Call get_nginx_user function to find the name of nginx user 
     get_nginx_user
-    echo "Creating a $site under $nginx_user ownership"
+    echo "Creating a $site_name under $nginx_user ownership"
     case $distro in 
     "ubuntu"|"debian")
         # Find the path to the default site directory
@@ -290,11 +290,11 @@ deploy_it(){
     # Copying all files and folders in the project directory to the specified site directory
     echo "Checking if the source code project directory exists"
     check_if_project_dir_exists
-    if [ "project_dir_exists" == "yes" ]; then
+    if [ "project_dir_exists" = "yes" ]; then
         echo "$source_code_dir_name exists in $repo. Deployment starting shortly..."
         echo "Coping the files and folders to the $path_to_new_site"
-        cp -R  "$repo"/"$source_code_dir_name"/*  "$path_to_new_site"
-        rm -R  "$repo"
+        cp -R  "$source_code_dir_name"/*  "$path_to_new_site"
+        rm -R  ../"$repo"
         # Restart the specified service
         echo "Restarting nginx now..."
         systemctl restart nginx
@@ -302,8 +302,8 @@ deploy_it(){
     else
         echo "$source_code_dir_name does not exists in $repo. Deployment whatever $repo contains..."
         echo "Coping the files and folders to the $path_to_new_site"
-        cp -R  "$repo"/*  "$path_to_new_site"
-        rm -R  "$repo"
+        cp -R  *  "$path_to_new_site"
+        rm -R  ../"$repo"
         # Restart the specified service
         echo "Restarting nginx now..."
         systemctl restart nginx
@@ -372,3 +372,5 @@ configure_site "$site_name" "$server_name"
 # Move the content of the repo into the new site directory
 # Restart the nginx service
 deploy_it "$github_repo" "$source_code_dir_name"
+
+
